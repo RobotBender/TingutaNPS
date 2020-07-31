@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <PGMExchangeFile>
-	<fileHeader company="Schneider Automation" product="Unity Pro XL V13.1 - 180823C" dateTime="date_and_time#2020-7-31-10:14:5" content="Multi Program source file" DTDVersion="41"></fileHeader>
-	<contentHeader name="Tinguta" version="0.0.152" dateTime="date_and_time#2019-10-23-20:27:1">
+	<fileHeader company="Schneider Automation" product="Unity Pro XL V13.1 - 180823C" dateTime="date_and_time#2020-7-31-9:55:42" content="Multi Program source file" DTDVersion="41"></fileHeader>
+	<contentHeader name="Tinguta" version="0.0.183" dateTime="date_and_time#2020-7-29-9:18:27">
 		<comment>НПС "Тингута"</comment>
 	</contentHeader>
 	<logicConf>
@@ -112,10 +112,10 @@ ELSE
   
   MODE_MODICON:= Osn;
   
+ MODE_MODICON:= Imit;
+  IP_ARM_NOE[0]:= 231 OR SHL(121,8);(* адрес IP_PC + IP_NOE*256 для режима Imit *)
   (*MODE_MODICON:= Imit;
-  IP_ARM_NOE[0]:= 231 OR SHL(121,8);(* адрес IP_PC + IP_NOE*256 для режима Imit *)*)
-  (*MODE_MODICON:= Imit;
-  IP_ARM_NOE[0]:= 219 OR SHL(214,8);*)
+  IP_ARM_NOE[0]:= 219 OR SHL(214,8); *)
   
   
   (* статусы контроллеров *)
@@ -3223,6 +3223,9 @@ FOR i:= 0 TO 3 DO
       reg:= n_sign/16; i_bit:= n_sign MOD 16; Shl2:= SHL(1,i_bit);
       Signal  := (Mas_di[reg]     AND Shl2) &lt;&gt; 0;
       Msk_sign:= (Mas_msk_di[reg] AND Shl2) &lt;&gt; 0;
+      IF Signal AND (Zash or Msk_z or RemMode ) THEN
+      	MA[i].NsOtklBB:=0;(* Снимаем сигнал несанкиц. останова *)
+      END_IF;
       (* задержка до 3 сек. при неотключении цепями ЗРУ или по факту отключения ВВ *)
       (* IF NOT MA[i].BB_Vkl THEN Htm1:=0; Tim_z[i][x][0].In:=0; ELSE Htm1:= H125; END_IF; *)
       Htm1:=0;
@@ -3255,10 +3258,13 @@ FOR i:= 0 TO 3 DO
       Htm1    := 0;
 
     30:(* самопроизвольное отключение *)
-      Signal  := MA[i].NsOtklBB; MA[i].NsOtklBB:= 0;
-      Ramka   := Signal;
+      Signal  := MA[i].NsOtklBB; 
+      (* Ramka   := Signal; *)
+      IF Signal AND (Zash  or Msk_z or RemMode ) THEN
+      	MA[i].NsOtklBB:=0;(* Снимаем сигнал несанкиц. останова *)
+      END_IF;
       Msk_sign:= 0;
-      Htm1    := 0;
+      Htm1    := H117;
 
     32:(* Неисправность системы контролЯ вибрации *)
       reg:= n_sign/16; i_bit:= n_sign MOD 16; Shl2:= SHL(1,i_bit);
@@ -4205,21 +4211,22 @@ FOR i:= 0 TO 3 DO
   X3 - закрытие задвижек
   X4 - запрет АВРа
   X5 - готовность
+  X6 - несанкционированное отключение
 *)
   X0:=  Fzs.Fagr[i][0] &lt;&gt; 0 OR ((Fzs.Fagr[i][1]and 16#FCFF) &lt;&gt; 0) OR Fzs.Fagr[i][2] &lt;&gt; 0 OR Fzs.Fagr[i][3] &lt;&gt; 0;
   X1:=((Fzs.Fagr[i][1]and 16#0100) &lt;&gt; 0);
   X3:= (Fzs.Fagr[i][0] AND 16#0010) &lt;&gt; 0 OR (Fzs.Fagr[i][1] AND 16#00FC) &lt;&gt; 0 OR (Fzs.Fagr[i][2] AND 16#0600) &lt;&gt; 0 OR (Fzs.Fagr[i][3] AND 16#0020) &lt;&gt; 0;
   X4:= (Fzs.Fagr[i][0] AND 16#0200) &lt;&gt; 0 OR (Fzs.Fagr[i][1] AND 16#6AF0) &lt;&gt; 0 OR (Fzs.Fagr[i][2] AND 16#1002) &lt;&gt; 0 OR (Fzs.Fagr[i][3] AND 16#E0E0) &lt;&gt; 0;
   X5:= (Got_ma[i][0] AND Got_ma[i][1]) = 16#FFFF;
-  
+  X6:=((Fzs.Fagr[i][1]and 16#04000) &lt;&gt; 0);
 (* MA[i].BB_Vkl *)
 IF i &lt;= 3 THEN HX1:= H125;  END_IF;
-
-Handler_ElZash( Str_ElZash:=Kontrol_ElZash[i],F_ElZash:= X1,Vkl_BB:= MA[i].BB_Vkl, StopNoCmd:= not MA[i].ComOff,HX:= HX1,Num100ms:= Num100ms );
-
+												(* not MA[i].ComOff *)
+(* Handler_ElZash( Str_ElZash:=Kontrol_ElZash[i],F_ElZash:= X1,Vkl_BB:= MA[i].BB_Vkl, StopNoCmd:= MA[i].NsOtklBB, HX:= HX1,Num100ms:= Num100ms );
+ *)
   
   (* 1. ОТКЛЮЧЕНИЕ АГРЕГАТА *) 
-  IF X0 or Handler_ElZash.Stop_AGR THEN
+  IF X0 or (X1  AND (MA[i].State=1 OR MA[i].PP)) THEN
     ComAgr[i].OffAOS:=1;
     IF NOT ComAgr[i].COffAOS THEN
       ComAgr[i].COffAOS:=1;
@@ -4233,7 +4240,7 @@ Handler_ElZash( Str_ElZash:=Kontrol_ElZash[i],F_ElZash:= X1,Vkl_BB:= MA[i].BB_Vk
   (* 2. АВР MHA. Проверка необходимости АВР *)
   IF X4 THEN                                                                          
    data_krma[i].AVR_Enable:= 0;
-  ELSIF (X1 and Handler_ElZash.Need_AVR) or (X0 AND (MA[i].State=1 OR MA[i].PP)) THEN 
+  ELSIF (X1 AND MA[i].NsOtklBB) or ((X0 or X1) AND (MA[i].State=1 OR MA[i].PP)) THEN 
    data_krma[i].AVR_Enable:= 1;
   END_IF;
   (* после отключения ВВ *)
@@ -5351,11 +5358,11 @@ IF MODE_MODICON = Imit THEN
   END_FOR;
   
   
-  (* Sbor vhodov *)
+  (* Sbor vhodov 
   l:= i * 3; k:= 0;
   R_bit(In_word:= Mas_di[l], num:= k);   Im_ma[i].im_mvv:= R_bit.Bit;
   R_bit(In_word:= Mas_di[l], num:= k+1); Im_ma[i].im_mvo:= R_bit.Bit;
-  
+  *)
   j:= 39 + (50 * i);
   Im_ma[i].im_tok := Mas_adc_izm_code[j];
   Im_ma[i].im_davl:= Mas_adc_izm_code[j - 12];
@@ -5379,7 +5386,7 @@ IF MODE_MODICON = Imit THEN
     Im_ma[i].TIM_im_MA[1].IN:=0;      
    END_IF;
    
-   IF MA[i].ComOff AND Im_ma[i].Im_Mvo = 0 THEN 
+   IF (MA[i].ComOff AND Im_ma[i].Im_Mvo = 0) THEN 
     Im_ma[i].Im_Mvv := 0;
     Im_ma[i].Im_Mvo := 1;
     Im_ma[i].TIM_im_MA[1].CLK:=TIMCLOCK; Im_ma[i].TIM_im_MA[1].COUNT:= 20;
@@ -5387,7 +5394,7 @@ IF MODE_MODICON = Imit THEN
     Im_ma[i].TIM_im_MA[0].IN:=0;      
    END_IF;   
    
-   IF MA[i].ComOff AND Im_ma[i].Im_Mvv = 0 AND Im_ma[i].TIM_im_MA[1].IN = 0 THEN
+   IF (MA[i].ComOff AND Im_ma[i].Im_Mvv = 0 AND Im_ma[i].TIM_im_MA[1].IN = 0) THEN
     Im_ma[i].Im_tok := 0; Im_ma[i].Im_Davl := 3500; 
    END_IF;
   END_IF;
@@ -8693,10 +8700,10 @@ V 1.00  - Разработка - Потапов А.Т.
       Msg(In_buf:= Mess_buf,New_mess:=42+OFFSET); (* \9 МА1 вв включен неустановленная причина *)
     ELSIF NOT MA[i].Tim[0].IN THEN
       MA[i].State_FSM:=306;
-      MA[i].NsOtklBB:=1; (* Агр.защита: Несанкционированное отключение ВВ *)
+      (*MA[i].NsOtklBB:=1;  Агр.защита: Несанкционированное отключение ВВ *)
       Msg(In_buf:= Mess_buf,New_mess:=45+OFFSET); (* \9 МА1 вв отключен неустановленная причина *)
     END_IF;
-    
+    MA[i].NsOtklBB:=1;(* Агр.защита: Несанкционированное отключение ВВ *)
   200:(* ОТКЛЮЧЕН *)
     IF MA[i].BB_Vkl THEN
       MA[i].NsVklBB:=1; (* Агр.защита: Несанкционированное включение ВВ *)
@@ -8836,7 +8843,7 @@ V 1.00  - Разработка - Потапов А.Т.
     END_IF;
     
   401:(* ОСТАНОВ, КОМАНДА НА РЕЛЕ *)
-    IF NOT MA[i].Tim[0].IN THEN
+    IF NOT MA[i].Tim[0].IN THEN	 
       MA[i].State_FSM:=400;
       MA[i].Tim[0].CLK:=timclock; MA[i].Tim[0].COUNT:=HX12; MA[i].Tim[0].IN:=1;
     END_IF;
@@ -8902,6 +8909,8 @@ V 1.00  - Разработка - Потапов А.Т.
     IF MA[i].BB_Vkl THEN
       MA[i].NsVklBB:=1; (* Агр.защита: Несанкционированное включение ВВ *)
       MA[i].State_FSM:=107;
+    elsif  not MA[i].BB_Vkl then
+      MA[i].State_FSM:=402;(* ОСТАНОВ, ВВ ОТКЛЮЧЕН, ЖДЕМ ТОК *)
     END_IF;
   
   107:(* ВВ включен, ожидаем срабатывание защиты (с командой на ВВ) *)
@@ -9141,7 +9150,7 @@ V 1.00  - Разработка - Потапов А.Т.
   (* ФЛАГИ  ПП и ПО *)
   MA[i].PP:=((NOT RemMode AND MA[i].State_FSM/100=3) OR MA[i].State_FSM = 102 OR MA[i].State_FSM = 105) AND MA[i].State_FSM &lt;&gt; 306;
   
-  MA[i].PO:= (NOT RemMode AND MA[i].State_FSM/100=4) OR MA[i].State_FSM = 201;
+  MA[i].PO:= (NOT RemMode AND MA[i].State_FSM/100=4) OR MA[i].State_FSM = 201 or (MA[i].State_FSM = 306);
   
   (* Флаг неоткл, таймера вибрации *)
   IF NOT MA[i].BB_Vkl THEN MA[i].Neotkl:=0; MA[i].Tim[1].IN:=0; MA[i].Tim[2].IN:=0; END_IF;
@@ -39085,7 +39094,6 @@ V 1.00  - Разработка - Потапов А.Т.
 			<comment>my</comment>
 		</variables>
 		<variables name="HourARM" typeName="UINT" topologicalAddress="%MW6452"></variables>
-		<variables name="Handler_ElZash" typeName="FB_Handler_ElZash"></variables>
 		<variables name="SwitchCounter" typeName="UINT" topologicalAddress="%MW11"></variables>
 		<variables name="IP_ARM" typeName="Mas_word_5"></variables>
 		<variables name="Ust2" typeName="REAL"></variables>
@@ -39374,11 +39382,11 @@ V 1.00  - Разработка - Потапов А.Т.
 			<comment>my</comment>
 		</variables>
 		<variables name="HSB_Status_other_copy" typeName="WORD"></variables>
+		<variables name="X6" typeName="BOOL"></variables>
 		<variables name="H035_2" typeName="UINT" topologicalAddress="%MW10739"></variables>
 		<variables name="H101" typeName="UINT" topologicalAddress="%MW10721">
 			<comment>Onoaaea ia aee??aiea AA IIA</comment>
 		</variables>
-		<variables name="Kontrol_ElZash" typeName="ARRAY[0..7] OF T_kontrol_ElZash"></variables>
 		<variables name="FLinkARM" typeName="WORD" topologicalAddress="%MW39">
 			<comment>Oeaae nayce n A?Iaie</comment>
 		</variables>
@@ -40809,10 +40817,6 @@ V 1.00  - Разработка - Потапов А.Т.
 			<comment>Iaen aaa? a ianeiaaeao</comment>
 		</variables>
 		<variables name="Year" typeName="INT" topologicalAddress="%MW6435"></variables>
-		<variables name="ControlTU" typeName="BOOL"></variables>
-		<variables name="Ust_Sar_TM" typeName="ARRAY[0..5] OF REAL" topologicalAddress="%MW6380">
-			<comment>Onoaaee io OI</comment>
-		</variables>
 		<variables name="Uso" typeName="T_mas_sort_sign">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<instanceElementDesc name="[0]">
@@ -41015,9 +41019,7 @@ V 1.00  - Разработка - Потапов А.Т.
 		<variables name="OffKtpr" typeName="UINT">
 			<comment>my</comment>
 		</variables>
-		<variables name="Sys_CP56Time2a" typeName="sCP56Time2a" topologicalAddress="%MW10070">
-			<comment>Дата и время в формате CP56Time2a</comment>
-		</variables>
+		<variables name="S" typeName="ARRAY[1..2] OF REAL"></variables>
 		<variables name="Signal" typeName="BOOL"></variables>
 		<variables name="Msg_Transfer_Status" typeName="ARRAY[0..9] OF Mess_ARM_block"></variables>
 		<variables name="H037" typeName="UINT" topologicalAddress="%MW10796">
@@ -41031,7 +41033,9 @@ V 1.00  - Разработка - Потапов А.Т.
 		<variables name="Resault" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
-		<variables name="BspVentWork" typeName="BOOL"></variables>
+		<variables name="DateTimeDT" typeName="DT">
+			<comment>0(byte)=0,1=sec,2=min,3=hour,4=day,5=month,6..7=year</comment>
+		</variables>
 		<variables name="Sost_in_zd" typeName="UINT"></variables>
 		<variables name="NewDay" typeName="UINT"></variables>
 		<variables name="DeblARM" typeName="BOOL">
@@ -41051,23 +41055,323 @@ V 1.00  - Разработка - Потапов А.Т.
 		</variables>
 		<variables name="Buff_Msg_Transfer" typeName="ARRAY[0..3] OF Mas_word_100" topologicalAddress="%MW57100"></variables>
 		<variables name="Sost_sar" typeName="BOOL"></variables>
-		<variables name="VKL" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="1"></variableInit>
+		<variables name="MIN" typeName="BOOL">
+			<comment>my</comment>
 		</variables>
-		<variables name="summa" typeName="DINT"></variables>
 		<variables name="OffAVT" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
 		<variables name="BBV1" typeName="BOOL"></variables>
 		<variables name="Mas_ust" typeName="T_ust_adc" topologicalAddress="%MW11000"></variables>
+		<variables name="KVO" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
 		<variables name="BBV1_Ndv" typeName="BOOL"></variables>
 		<variables name="Produvka_MNC" typeName="BOOL"></variables>
-		<variables name="dw" typeName="WORD"></variables>
-		<variables name="Ned_Hi" typeName="UINT"></variables>
-		<variables name="FLinkDCS" typeName="WORD" topologicalAddress="%MW34">
-			<comment>Iaiauaiiua oeaae nayce n DCS a ONI</comment>
+		<variables name="Ned_Not_SMS" typeName="Mas_word_100">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<instanceElementDesc name="[2]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[5]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[8]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[11]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[25]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[0]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[1]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[3]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[4]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[6]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[7]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[9]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[10]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[12]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[13]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[14]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[15]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[16]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[17]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[18]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[19]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[20]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[21]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[22]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[23]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[24]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[26]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[27]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[28]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[29]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[30]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[33]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[34]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[46]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[45]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[44]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[43]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[42]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[41]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[40]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[39]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[38]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[37]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[36]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[35]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[31]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[32]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[47]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[48]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[49]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[50]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[51]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[52]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[53]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[54]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[55]">
+				<value>16#FFFF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[56]">
+				<value>16#00FF</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[57]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[58]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[59]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[60]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[61]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[62]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[63]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[64]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[65]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[66]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[67]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[68]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[69]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[70]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[71]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[72]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[73]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[74]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[75]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[76]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[77]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[78]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[79]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[80]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[81]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[82]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[83]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[84]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[85]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[86]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[87]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[88]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[89]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[90]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[91]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[92]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[93]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[94]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[95]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[96]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[97]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[98]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[99]">
+				<value>16#0000</value>
+			</instanceElementDesc>
 		</variables>
+		<variables name="Ned_Hi" typeName="UINT"></variables>
 		<variables name="Type_ai" typeName="Mas_uint_500">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<instanceElementDesc name="[0]">
@@ -42112,9 +42416,6 @@ V 1.00  - Разработка - Потапов А.Т.
 			</instanceElementDesc>
 		</variables>
 		<variables name="TONR_CSPA_CH1" typeName="TON"></variables>
-		<variables name="H131" typeName="UINT" topologicalAddress="%MW10747">
-			<comment>a?aiy [nae] iinea oieiaiiai ionea, a oa?aiee eioi?iai aicii?ai iiaoi?iue ione</comment>
-		</variables>
 		<variables name="OpenTM" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
@@ -42123,7 +42424,10 @@ V 1.00  - Разработка - Потапов А.Т.
 			<attribute name="IsConstant" value="-1"></attribute>
 			<variableInit value="5"></variableInit>
 		</variables>
-		<variables name="NewMinute" typeName="UINT"></variables>
+		<variables name="Remont" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="7"></variableInit>
+		</variables>
 		<variables name="USOCounter" typeName="Mas_uint_20">
 			<comment>N?ao?ee oeeeia</comment>
 		</variables>
@@ -42131,21 +42435,23 @@ V 1.00  - Разработка - Потапов А.Т.
 		<variables name="Opening" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
-		<variables name="Dist" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="4"></variableInit>
-		</variables>
+		<variables name="num" typeName="UINT"></variables>
+		<variables name="dw" typeName="WORD"></variables>
 		<variables name="Buf_uso_input" typeName="Mas_uint_200x20" topologicalAddress="%MW21000">
 			<instanceElementDesc name="[0]">
 				<comment>ONI 1.1.1</comment>
 			</instanceElementDesc>
 		</variables>
 		<variables name="Ind_sost_nps" typeName="WORD" topologicalAddress="%MW5893"></variables>
-		<variables name="bNackOsn" typeName="BOOL"></variables>
-		<variables name="Num_Vkl_MA" typeName="UINT"></variables>
+		<variables name="GorRes" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
 		<variables name="Tim_aos" typeName="TTimer"></variables>
+		<variables name="Ust_Sar_TM" typeName="ARRAY[0..5] OF REAL" topologicalAddress="%MW6380">
+			<comment>Onoaaee io OI</comment>
+		</variables>
 		<variables name="Mode_MA" typeName="Mas_uint_10" topologicalAddress="%MW6000"></variables>
-		<variables name="SAR_TR_TM_Request" typeName="BOOL"></variables>
+		<variables name="Zadv_MNS_otkr" typeName="BOOL"></variables>
 		<variables name="KCToKKresData" typeName="ARRAY[0..4] OF WORD" topologicalAddress="%MW10160">
 			<comment>Данные от КЦ в рез ККСТМ</comment>
 			<instanceElementDesc name="[0]">
@@ -42157,60 +42463,210 @@ V 1.00  - Разработка - Потапов А.Т.
 		</variables>
 		<variables name="Din_modicon" typeName="UINT" topologicalAddress="%MW6"></variables>
 		<variables name="Month" typeName="INT" topologicalAddress="%MW6434"></variables>
-		<variables name="Upr_in_zd" typeName="WORD"></variables>
 		<variables name="H121" typeName="UINT" topologicalAddress="%MW10805">
 			<comment>Aea?aoey IA ii?ia 2</comment>
 		</variables>
-		<variables name="BBO1" typeName="BOOL"></variables>
-		<variables name="MIN" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
+		<variables name="Timer_100" typeName="Mas_timer_100"></variables>
 		<variables name="Z_AOS" typeName="UINT"></variables>
 		<variables name="Upr_fzma" typeName="Mas_uint_10" topologicalAddress="%MW5300"></variables>
+		<variables name="Tim_z" typeName="Tim_zagr"></variables>
 		<variables name="H051" typeName="UINT" topologicalAddress="%MW10819">
 			<comment>Niyoea iei o?iaiy a aie ooa?ae</comment>
 		</variables>
 		<variables name="N_AGR" typeName="UINT"></variables>
-		<variables name="AiNotCNS" typeName="UINT">
+		<variables name="Mas_const0_di" typeName="MAS_word_200">
 			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="10361"></variableInit>
+			<instanceElementDesc name="[0]">
+				<value>16#0004</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[1]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[2]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[3]">
+				<value>16#0004</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[4]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[5]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[6]">
+				<value>16#0004</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[7]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[8]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[9]">
+				<value>16#0004</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[10]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[11]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[12]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[13]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[14]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[15]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[16]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[17]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[18]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[19]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[20]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[21]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[22]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[23]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[24]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[25]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[26]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[27]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[28]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[29]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[30]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[31]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[32]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[33]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[35]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[36]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[37]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[38]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[39]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[40]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[41]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[42]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[43]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[44]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[45]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[46]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[47]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[48]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[49]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[50]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[51]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[52]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[53]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[54]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[55]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[56]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[57]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[58]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[59]">
+				<value>16#0000</value>
+			</instanceElementDesc>
+			<instanceElementDesc name="[34]">
+				<value>16#0000</value>
+			</instanceElementDesc>
 		</variables>
 		<variables name="ZASL1_GOT" typeName="BOOL"></variables>
-		<variables name="Sost_tablo_siren" typeName="MAS_word_10" topologicalAddress="%MW5860"></variables>
-		<variables name="MasDiagInfo" typeName="Mas_uint_200" topologicalAddress="%MW9600">
-			<comment>Oeaae ioeaie DCS</comment>
+		<variables name="Sys_CP56Time2a" typeName="sCP56Time2a" topologicalAddress="%MW10070">
+			<comment>Дата и время в формате CP56Time2a</comment>
 		</variables>
 		<variables name="StateVV" typeName="Mas_uint_10">
 			<comment>my</comment>
 		</variables>
-		<variables name="FlagLinkUSO" typeName="Mas_bool_25">
-			<instanceElementDesc name="[0]">
-				<comment>ONI 111</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[1]">
-				<comment>ONI 112</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[2]">
-				<comment>ONI 121</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[3]">
-				<comment>ONI 122</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[4]">
-				<comment>ONI 13 (EAC)</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[5]">
-				<comment>ONI 14</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[6]">
-				<comment>ONI 16</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[7]">
-				<comment>ONI 17 (NA?A)</comment>
-			</instanceElementDesc>
-			<instanceElementDesc name="[8]">
-				<comment>ONI 18</comment>
-			</instanceElementDesc>
+		<variables name="bNackOsn" typeName="BOOL"></variables>
+		<variables name="StopTM" typeName="BOOL">
+			<comment>my</comment>
 		</variables>
 		<variables name="Upr_mode_nps_tm" typeName="UINT" topologicalAddress="%MW5357"></variables>
 		<variables name="X1" typeName="BOOL"></variables>
@@ -42221,14 +42677,15 @@ V 1.00  - Разработка - Потапов А.Т.
 			<attribute name="IsConstant" value="-1"></attribute>
 			<variableInit value="10341"></variableInit>
 		</variables>
+		<variables name="j" typeName="UINT"></variables>
 		<variables name="FSynhTimeCmd" typeName="Mas_word_4" topologicalAddress="%MW6436">
 			<comment>I?eciaee neio?iiecaoee a?aiaie aey A?Iia</comment>
 		</variables>
-		<variables name="HSB_Status_this_copy" typeName="WORD"></variables>
-		<variables name="AiMaxAv" typeName="UINT">
+		<variables name="Rezerv" typeName="UINT">
 			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="10351"></variableInit>
+			<variableInit value="6"></variableInit>
 		</variables>
+		<variables name="ControlTU" typeName="BOOL"></variables>
 		<variables name="TI_sign" typeName="Mas_uint_250">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<instanceElementDesc name="[0]">
@@ -42982,35 +43439,131 @@ V 1.00  - Разработка - Потапов А.Т.
 				<value>1000</value>
 			</instanceElementDesc>
 		</variables>
-		<variables name="TRackRes" typeName="ARRAY[0..2] OF WORD" topologicalAddress="%MW10150">
-			<comment>Подтверждения ТР в резервный ККСТМ</comment>
-		</variables>
+		<variables name="Mas_adc_izm_code" typeName="Mas_uint_500"></variables>
 		<variables name="Prog_puska_ma" typeName="Mas_uint_10" topologicalAddress="%MW6300"></variables>
 		<variables name="num_with_MA" typeName="UINT" topologicalAddress="%MW5891"></variables>
-		<variables name="AiMin" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="10343"></variableInit>
-		</variables>
+		<variables name="FirstScan" typeName="BOOL"></variables>
 		<variables name="HX13" typeName="UINT"></variables>
+		<variables name="FLinkDCS" typeName="WORD" topologicalAddress="%MW34">
+			<comment>Iaiauaiiua oeaae nayce n DCS a ONI</comment>
+		</variables>
 		<variables name="BBV2" typeName="BOOL"></variables>
 		<variables name="z" typeName="UINT"></variables>
 		<variables name="TUpr" typeName="Mas_uint_50"></variables>
-		<variables name="ResMode" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
 		<variables name="pku" typeName="BOOL"></variables>
 		<variables name="RemMode" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
-		<variables name="Num100ms" typeName="UINT" topologicalAddress="%MW21"></variables>
 		<variables name="OffSetAi" typeName="UINT">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<variableInit value="10401"></variableInit>
 		</variables>
-		<variables name="CmdForUSO" typeName="WORD"></variables>
+		<variables name="H114_4" typeName="UINT" topologicalAddress="%MW10757"></variables>
+		<variables name="TimZDI" typeName="Mas_timer_100">
+			<comment>my</comment>
+		</variables>
 		<variables name="HX6" typeName="UINT"></variables>
 		<variables name="Upr_perehod_MA" typeName="UINT" topologicalAddress="%MW5359"></variables>
 		<variables name="HX12" typeName="UINT"></variables>
+		<variables name="Scaling_Data" typeName="SCALING"></variables>
+		<variables name="ust_narabotki" typeName="ARRAY[0..3] OF T_ust_narabotki" topologicalAddress="%MW9500"></variables>
+		<variables name="VKL" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="1"></variableInit>
+		</variables>
+		<variables name="MslWork" typeName="BOOL"></variables>
+		<variables name="AiMaxPr" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="10347"></variableInit>
+		</variables>
+		<variables name="SimARM" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
+		<variables name="TUnack" typeName="ARRAY[0..49] OF WORD"></variables>
+		<variables name="MasStateUSO" typeName="Mas_uint_20x20" topologicalAddress="%MW100">
+			<comment>Caaieiaee cayaie io ONI (aeaaiinoeea)</comment>
+		</variables>
+		<variables name="Dist" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="4"></variableInit>
+		</variables>
+		<variables name="HX9" typeName="UINT"></variables>
+		<variables name="UTCyear" typeName="UINT"></variables>
+		<variables name="Ind_fzs" typeName="MAS_word_10" topologicalAddress="%MW5870"></variables>
+		<variables name="NewMinute" typeName="UINT"></variables>
+		<variables name="OsnInGrp" typeName="BOOL"></variables>
+		<variables name="Write_Msg_ARM4" typeName="WRITE_REG"></variables>
+		<variables name="H103" typeName="UINT" topologicalAddress="%MW10723">
+			<comment>Onoaaea ia na?in oiea IIA</comment>
+		</variables>
+		<variables name="m" typeName="UINT"></variables>
+		<variables name="SAR_TR_TM_Request" typeName="BOOL"></variables>
+		<variables name="Day" typeName="INT" topologicalAddress="%MW6433"></variables>
+		<variables name="FMin1" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
+		<variables name="BspVentWork" typeName="BOOL"></variables>
+		<variables name="AiNotCNS" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="10361"></variableInit>
+		</variables>
+		<variables name="H104" typeName="UINT" topologicalAddress="%MW10724">
+			<comment>Iaeni?aaiinou oaiae aee/ioee</comment>
+		</variables>
+		<variables name="MPC" typeName="BOOL"></variables>
+		<variables name="MasDiagInfo" typeName="Mas_uint_200" topologicalAddress="%MW9600">
+			<comment>Oeaae ioeaie DCS</comment>
+		</variables>
+		<variables name="TONR_CSPA_CH2" typeName="TON"></variables>
+		<variables name="FlagLinkUSO" typeName="Mas_bool_25">
+			<instanceElementDesc name="[0]">
+				<comment>ONI 111</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[1]">
+				<comment>ONI 112</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[2]">
+				<comment>ONI 121</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[3]">
+				<comment>ONI 122</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[4]">
+				<comment>ONI 13 (EAC)</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[5]">
+				<comment>ONI 14</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[6]">
+				<comment>ONI 16</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[7]">
+				<comment>ONI 17 (NA?A)</comment>
+			</instanceElementDesc>
+			<instanceElementDesc name="[8]">
+				<comment>ONI 18</comment>
+			</instanceElementDesc>
+		</variables>
+		<variables name="summa" typeName="DINT"></variables>
+		<variables name="AiMaxAv" typeName="UINT">
+			<attribute name="IsConstant" value="-1"></attribute>
+			<variableInit value="10351"></variableInit>
+		</variables>
+		<variables name="TRackRes" typeName="ARRAY[0..2] OF WORD" topologicalAddress="%MW10150">
+			<comment>Подтверждения ТР в резервный ККСТМ</comment>
+		</variables>
+		<variables name="SignNed" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
+		<variables name="Upr_in_zd" typeName="WORD"></variables>
+		<variables name="MasDiagInfoCopy" typeName="Mas_uint_200"></variables>
+		<variables name="ResIndex" typeName="INT"></variables>
+		<variables name="ResMode" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
+		<variables name="Num_Vkl_MA" typeName="UINT"></variables>
+		<variables name="CmdForUSO" typeName="WORD"></variables>
+		<variables name="HSB_Status_this_copy" typeName="WORD"></variables>
 		<variables name="Sign_Ktpr_d" typeName="Mas_uint_250">
 			<comment>my</comment>
 			<attribute name="IsConstant" value="-1"></attribute>
@@ -43471,572 +44024,35 @@ V 1.00  - Разработка - Потапов А.Т.
 				<value>543</value>
 			</instanceElementDesc>
 		</variables>
-		<variables name="UTCyear" typeName="UINT"></variables>
-		<variables name="MasDiagInfoCopy" typeName="Mas_uint_200"></variables>
-		<variables name="Scaling_Data" typeName="SCALING"></variables>
-		<variables name="ust_narabotki" typeName="ARRAY[0..3] OF T_ust_narabotki" topologicalAddress="%MW9500"></variables>
+		<variables name="ComOpen" typeName="BOOL"></variables>
 		<variables name="Mas_di" typeName="MAS_word_200" topologicalAddress="%MW3000"></variables>
-		<variables name="MslWork" typeName="BOOL"></variables>
-		<variables name="AiMaxPr" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="10347"></variableInit>
-		</variables>
-		<variables name="OsnInGrp" typeName="BOOL"></variables>
-		<variables name="SimARM" typeName="BOOL">
+		<variables name="StopARM" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
-		<variables name="TUnack" typeName="ARRAY[0..49] OF WORD"></variables>
+		<variables name="MPZ" typeName="BOOL">
+			<comment>my</comment>
+		</variables>
 		<variables name="H1061" typeName="UINT" topologicalAddress="%MW10817">
 			<comment>aeiee?iaea Ii?ia1 aey YA</comment>
 		</variables>
-		<variables name="PCErr" typeName="BOOL"></variables>
-		<variables name="Ind_fzs" typeName="MAS_word_10" topologicalAddress="%MW5870"></variables>
-		<variables name="Remont" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="7"></variableInit>
+		<variables name="H131" typeName="UINT" topologicalAddress="%MW10747">
+			<comment>a?aiy [nae] iinea oieiaiiai ionea, a oa?aiee eioi?iai aicii?ai iiaoi?iue ione</comment>
 		</variables>
-		<variables name="H103" typeName="UINT" topologicalAddress="%MW10723">
-			<comment>Onoaaea ia na?in oiea IIA</comment>
-		</variables>
+		<variables name="FMAWork" typeName="BOOL"></variables>
 		<variables name="TRnack" typeName="ARRAY[0..2] OF WORD"></variables>
-		<variables name="Zadv_MNS_otkr" typeName="BOOL"></variables>
-		<variables name="Day" typeName="INT" topologicalAddress="%MW6433"></variables>
-		<variables name="Timer_100" typeName="Mas_timer_100"></variables>
-		<variables name="FMin1" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="DateTimeDT" typeName="DT">
-			<comment>0(byte)=0,1=sec,2=min,3=hour,4=day,5=month,6..7=year</comment>
-		</variables>
-		<variables name="Mas_const0_di" typeName="MAS_word_200">
+		<variables name="AiMin" typeName="UINT">
 			<attribute name="IsConstant" value="-1"></attribute>
-			<instanceElementDesc name="[0]">
-				<value>16#0004</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[1]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[2]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[3]">
-				<value>16#0004</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[4]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[5]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[6]">
-				<value>16#0004</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[7]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[8]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[9]">
-				<value>16#0004</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[10]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[11]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[12]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[13]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[14]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[15]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[16]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[17]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[18]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[19]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[20]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[21]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[22]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[23]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[24]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[25]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[26]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[27]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[28]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[29]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[30]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[31]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[32]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[33]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[35]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[36]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[37]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[38]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[39]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[40]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[41]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[42]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[43]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[44]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[45]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[46]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[47]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[48]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[49]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[50]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[51]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[52]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[53]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[54]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[55]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[56]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[57]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[58]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[59]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[34]">
-				<value>16#0000</value>
-			</instanceElementDesc>
+			<variableInit value="10343"></variableInit>
+		</variables>
+		<variables name="CSPA_Code_Send" typeName="ARRAY[1..2] OF REAL"></variables>
+		<variables name="HX1" typeName="UINT"></variables>
+		<variables name="Num100ms" typeName="UINT" topologicalAddress="%MW21"></variables>
+		<variables name="OsnMode" typeName="BOOL">
+			<comment>my</comment>
 		</variables>
 		<variables name="AiMaxP1" typeName="UINT">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<variableInit value="10355"></variableInit>
-		</variables>
-		<variables name="MPC" typeName="BOOL"></variables>
-		<variables name="MPZ" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="TONR_CSPA_CH2" typeName="TON"></variables>
-		<variables name="StopTM" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="j" typeName="UINT"></variables>
-		<variables name="Ned_Not_SMS" typeName="Mas_word_100">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<instanceElementDesc name="[2]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[5]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[8]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[11]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[25]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[0]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[1]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[3]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[4]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[6]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[7]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[9]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[10]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[12]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[13]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[14]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[15]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[16]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[17]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[18]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[19]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[20]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[21]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[22]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[23]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[24]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[26]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[27]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[28]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[29]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[30]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[33]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[34]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[46]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[45]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[44]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[43]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[42]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[41]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[40]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[39]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[38]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[37]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[36]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[35]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[31]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[32]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[47]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[48]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[49]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[50]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[51]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[52]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[53]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[54]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[55]">
-				<value>16#FFFF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[56]">
-				<value>16#00FF</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[57]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[58]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[59]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[60]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[61]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[62]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[63]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[64]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[65]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[66]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[67]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[68]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[69]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[70]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[71]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[72]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[73]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[74]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[75]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[76]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[77]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[78]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[79]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[80]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[81]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[82]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[83]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[84]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[85]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[86]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[87]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[88]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[89]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[90]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[91]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[92]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[93]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[94]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[95]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[96]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[97]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[98]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-			<instanceElementDesc name="[99]">
-				<value>16#0000</value>
-			</instanceElementDesc>
-		</variables>
-		<variables name="Mas_adc_izm_code" typeName="Mas_uint_500"></variables>
-		<variables name="SignNed" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="Write_Msg_ARM4" typeName="WRITE_REG"></variables>
-		<variables name="H113" typeName="UINT" topologicalAddress="%MW10730">
-			<comment>Oaii ei?iona, iiao IA</comment>
-		</variables>
-		<variables name="ResIndex" typeName="INT"></variables>
-		<variables name="GorRes" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="TimZDI" typeName="Mas_timer_100">
-			<comment>my</comment>
-		</variables>
-		<variables name="ComOpen" typeName="BOOL"></variables>
-		<variables name="StopARM" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="FMAWork" typeName="BOOL"></variables>
-		<variables name="US4" typeName="BOOL"></variables>
-		<variables name="X0" typeName="BOOL"></variables>
-		<variables name="m" typeName="UINT"></variables>
-		<variables name="FirstScan" typeName="BOOL"></variables>
-		<variables name="CSPA_Code_Send" typeName="ARRAY[1..2] OF REAL"></variables>
-		<variables name="OsnMode" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="H104" typeName="UINT" topologicalAddress="%MW10724">
-			<comment>Iaeni?aaiinou oaiae aee/ioee</comment>
 		</variables>
 		<variables name="H112" typeName="UINT" topologicalAddress="%MW10729">
 			<comment>Aaae ianea IA</comment>
@@ -44044,41 +44060,34 @@ V 1.00  - Разработка - Потапов А.Т.
 		<variables name="H011" typeName="UINT" topologicalAddress="%MW10704">
 			<comment>Iei anan i?aaae 1</comment>
 		</variables>
-		<variables name="KVO" typeName="BOOL">
-			<comment>my</comment>
-		</variables>
-		<variables name="S" typeName="ARRAY[1..2] OF REAL"></variables>
+		<variables name="Sost_tablo_siren" typeName="MAS_word_10" topologicalAddress="%MW5860"></variables>
 		<variables name="HSB_Status_this" typeName="WORD" topologicalAddress="%MW4"></variables>
-		<variables name="Mas_sost_mv" typeName="MAS_word_10" topologicalAddress="%MW5850"></variables>
-		<variables name="num" typeName="UINT"></variables>
+		<variables name="H012" typeName="UINT" topologicalAddress="%MW10705">
+			<comment>Iei anan i?aaae 2</comment>
+		</variables>
+		<variables name="US4" typeName="BOOL"></variables>
 		<variables name="Zd_out_open" typeName="BOOL"></variables>
 		<variables name="Restart_cool" typeName="BOOL"></variables>
-		<variables name="MasStateUSO" typeName="Mas_uint_20x20" topologicalAddress="%MW100">
-			<comment>Caaieiaee cayaie io ONI (aeaaiinoeea)</comment>
+		<variables name="PCErr" typeName="BOOL"></variables>
+		<variables name="H113" typeName="UINT" topologicalAddress="%MW10730">
+			<comment>Oaii ei?iona, iiao IA</comment>
 		</variables>
 		<variables name="Res" typeName="UINT">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<variableInit value="6"></variableInit>
 		</variables>
-		<variables name="HX1" typeName="UINT"></variables>
-		<variables name="Rezerv" typeName="UINT">
-			<attribute name="IsConstant" value="-1"></attribute>
-			<variableInit value="6"></variableInit>
-		</variables>
+		<variables name="BBO1" typeName="BOOL"></variables>
 		<variables name="MinuteARM" typeName="UINT" topologicalAddress="%MW6451"></variables>
 		<variables name="Ind_msk_fzs" typeName="MAS_word_10" topologicalAddress="%MW5880"></variables>
-		<variables name="Tim_z" typeName="Tim_zagr"></variables>
 		<variables name="DClk" typeName="INT">
 			<comment>my</comment>
 		</variables>
-		<variables name="H012" typeName="UINT" topologicalAddress="%MW10705">
-			<comment>Iei anan i?aaae 2</comment>
-		</variables>
+		<variables name="Mas_sost_mv" typeName="MAS_word_10" topologicalAddress="%MW5850"></variables>
 		<variables name="CMVZ" typeName="BOOL">
 			<comment>my</comment>
 		</variables>
 		<variables name="Got_ma" typeName="T_fgna" topologicalAddress="%MW6800"></variables>
-		<variables name="KKresToKCData_prev" typeName="WORD"></variables>
+		<variables name="Mas_fsim_di" typeName="MAS_word_200" topologicalAddress="%MW3600"></variables>
 		<variables name="Out_bit_vs" typeName="Mas_uint_100">
 			<attribute name="IsConstant" value="-1"></attribute>
 			<instanceElementDesc name="[0]">
@@ -44293,10 +44302,9 @@ V 1.00  - Разработка - Потапов А.Т.
 			</instanceElementDesc>
 		</variables>
 		<variables name="Fzs" typeName="T_fzs" topologicalAddress="%MW6500"></variables>
+		<variables name="X0" typeName="BOOL"></variables>
 		<variables name="HourTM" typeName="UINT" topologicalAddress="%MW6442"></variables>
-		<variables name="HX9" typeName="UINT"></variables>
-		<variables name="H114_4" typeName="UINT" topologicalAddress="%MW10757"></variables>
-		<variables name="Mas_fsim_di" typeName="MAS_word_200" topologicalAddress="%MW3600"></variables>
+		<variables name="KKresToKCData_prev" typeName="WORD"></variables>
 	</dataBlock>
 	<DDTSource DDTName="Mas_bool_20" version="2.00" dateTime="dt#2002-11-30-12:00:00">
 		<attribute name="TypeSignatureCheckSumString" value="43CE"></attribute>
@@ -44612,103 +44620,6 @@ END_IF;
 		<attribute name="TypeSignatureCheckSumString" value="AB19"></attribute>
 		<array>ARRAY[0..19] OF MAS_word_50</array>
 	</DDTSource>
-	<FBSource nameOfFBType="FB_Handler_ElZash" version="0.02" dateTime="dt#2017-03-24-14:54:30">
-		<attribute name="TypeCodeCheckSumString" value="A56B"></attribute>
-		<attribute name="TypeSignatureCheckSumString" value="7A03"></attribute>
-		<inputParameters>
-			<variables name="F_ElZash" typeName="BOOL">
-				<attribute name="PositionPin" value="2"></attribute>
-			</variables>
-			<variables name="Vkl_BB" typeName="BOOL">
-				<attribute name="PositionPin" value="3"></attribute>
-			</variables>
-			<variables name="StopNoCmd" typeName="BOOL">
-				<attribute name="PositionPin" value="4"></attribute>
-			</variables>
-			<variables name="HX" typeName="UINT">
-				<attribute name="PositionPin" value="5"></attribute>
-			</variables>
-			<variables name="Num100ms" typeName="UINT">
-				<attribute name="PositionPin" value="6"></attribute>
-			</variables>
-		</inputParameters>
-		<inOutParameters>
-			<variables name="Str_ElZash" typeName="T_kontrol_ElZash">
-				<attribute name="PositionPin" value="1"></attribute>
-			</variables>
-		</inOutParameters>
-		<outputParameters>
-			<variables name="Need_AVR" typeName="BOOL">
-				<attribute name="PositionPin" value="2"></attribute>
-			</variables>
-			<variables name="Stop_AGR" typeName="BOOL">
-				<attribute name="PositionPin" value="3"></attribute>
-			</variables>
-		</outputParameters>
-		<FBProgram name="sec">
-			<STSource>(*
-	Электрозащита, это уже не просто так!
-
-	Автомат обработки действий по эл.защите МА и ПА
-*)
-
-	
-CASE Str_ElZash.Sost_FSM OF
-	100:   (*включен, все в норме*)
-		IF F_ElZash THEN Str_ElZash.Sost_FSM:= 102; Str_ElZash.Timer:=HX;
-		ELSIF NOT Vkl_BB THEN Str_ElZash.Sost_FSM:= 200;
-		END_IF;
-
-	102:(*включен, есть электрозащита*)
-		IF NOT F_ElZash AND Vkl_BB THEN Str_ElZash.Sost_FSM:= 100;
-		ELSIF NOT F_ElZash AND NOT Vkl_BB THEN Str_ElZash.Sost_FSM:= 200;
-		ELSIF F_ElZash AND  NOT Vkl_BB THEN Str_ElZash.Sost_FSM:=109;
-		ELSIF Str_ElZash.Timer=0 THEN Str_ElZash.Sost_FSM:=109;
-		END_IF;
-
-	109:Str_ElZash.Sost_FSM:=110; (*состояние для АВР*)
-
-	110: (*отключен электрозащитой, или не отключен за заданное время*)
-		IF NOT F_ElZash AND Vkl_BB THEN Str_ElZash.Sost_FSM:= 100;
-		ELSIF NOT F_ElZash AND NOT Vkl_BB THEN Str_ElZash.Sost_FSM:= 200;
-		END_IF;
-
-	200:   (*отключен, все в норме*)
-		IF Vkl_BB THEN Str_ElZash.Sost_FSM:= 100;
-		ELSIF F_ElZash and StopNoCmd then Str_ElZash.Sost_FSM:=209; (*идет несанкц отключение, надо делать АВР*)
-		ELSIF F_ElZash THEN Str_ElZash.Sost_FSM:=210;
-		END_IF;
-	209: (*эл-та пришла при несанкц отключениии - попытка сдалать АВР*)
-		Str_ElZash.Sost_FSM:=210;
-	210: (*отключен, есть электрозащита*)
-		IF NOT F_ElZash AND Vkl_BB THEN Str_ElZash.Sost_FSM:= 100;
-		ELSIF NOT F_ElZash AND NOT Vkl_BB THEN Str_ElZash.Sost_FSM:= 200;
-		END_IF;
-ELSE
-	IF Vkl_BB THEN Str_ElZash.Sost_FSM:= 100;
-	ELSE Str_ElZash.Sost_FSM:= 200;
-	END_IF;
-END_CASE;
-
-Need_AVR:=(Str_ElZash.Sost_FSM=109) or (Str_ElZash.Sost_FSM=209);
-Stop_AGR:=(Str_ElZash.Sost_FSM=210) OR (Str_ElZash.Sost_FSM=110) OR Need_AVR;
-
-
-IF Str_ElZash.Timer &lt;&gt; 0 THEN
-	IF Str_ElZash.Timer &gt; Num100ms	THEN	Str_ElZash.Timer:= Str_ElZash.Timer - Num100ms;
-	ELSE	Str_ElZash.Timer:= 0;
-	END_IF;
-END_IF;
-</STSource>
-		</FBProgram>
-	</FBSource>
-	<DDTSource DDTName="T_kontrol_ElZash" version="0.01" dateTime="dt#2017-03-24-12:08:03">
-		<attribute name="TypeSignatureCheckSumString" value="6AF7"></attribute>
-		<structure>
-			<variables name="Sost_FSM" typeName="UINT"></variables>
-			<variables name="Timer" typeName="UINT"></variables>
-		</structure>
-	</DDTSource>
 	<FBSource nameOfFBType="RD_BIT" version="2.00" dateTime="dt#2006-09-08-15:17:55">
 		<attribute name="TypeCodeCheckSumString" value="2DF2"></attribute>
 		<attribute name="TypeSignatureCheckSumString" value="5301"></attribute>
@@ -45021,6 +44932,18 @@ OutDT:= ARINT_TO_DT(Mas_Int_4);
 		<attribute name="TypeSignatureCheckSumString" value="93F5"></attribute>
 		<array>ARRAY[0..19] OF Mas_uint_200</array>
 	</DDTSource>
+	<DDTSource DDTName="Tim_zagr" version="2.00" dateTime="dt#2002-11-30-12:00:00">
+		<attribute name="TypeSignatureCheckSumString" value="38F7"></attribute>
+		<array>ARRAY[0..7] OF Mas_timer_80x2</array>
+	</DDTSource>
+	<DDTSource DDTName="Mas_timer_80x2" version="2.00" dateTime="dt#2002-11-30-12:00:00">
+		<attribute name="TypeSignatureCheckSumString" value="4F15"></attribute>
+		<array>ARRAY[0..79] OF Mas_timer_2</array>
+	</DDTSource>
+	<DDTSource DDTName="Mas_timer_2" version="2.00" dateTime="dt#2002-11-30-12:00:00">
+		<attribute name="TypeSignatureCheckSumString" value="D2CF"></attribute>
+		<array>ARRAY[0..1] OF TTimer</array>
+	</DDTSource>
 	<DDTSource DDTName="Mas_word_4" version="0.00" dateTime="dt#2009-06-23-19:07:34">
 		<attribute name="TypeSignatureCheckSumString" value="C994"></attribute>
 		<array>ARRAY[0..3] OF WORD</array>
@@ -45039,17 +44962,5 @@ OutDT:= ARINT_TO_DT(Mas_Int_4);
 	<DDTSource DDTName="Mas_uint_20x20" version="0.00" dateTime="dt#2010-05-28-20:34:03">
 		<attribute name="TypeSignatureCheckSumString" value="6584"></attribute>
 		<array>ARRAY[0..19] OF Mas_uint_20</array>
-	</DDTSource>
-	<DDTSource DDTName="Tim_zagr" version="2.00" dateTime="dt#2002-11-30-12:00:00">
-		<attribute name="TypeSignatureCheckSumString" value="38F7"></attribute>
-		<array>ARRAY[0..7] OF Mas_timer_80x2</array>
-	</DDTSource>
-	<DDTSource DDTName="Mas_timer_80x2" version="2.00" dateTime="dt#2002-11-30-12:00:00">
-		<attribute name="TypeSignatureCheckSumString" value="4F15"></attribute>
-		<array>ARRAY[0..79] OF Mas_timer_2</array>
-	</DDTSource>
-	<DDTSource DDTName="Mas_timer_2" version="2.00" dateTime="dt#2002-11-30-12:00:00">
-		<attribute name="TypeSignatureCheckSumString" value="D2CF"></attribute>
-		<array>ARRAY[0..1] OF TTimer</array>
 	</DDTSource>
 </PGMExchangeFile>
